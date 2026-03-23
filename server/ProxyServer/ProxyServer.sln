@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProxyServer", "ProxyServer\ProxyServer.csproj", "{DFDD887F-1E08-4CF7-8994-5F0365309B6E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{DFDD887F-1E08-4CF7-8994-5F0365309B6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DFDD887F-1E08-4CF7-8994-5F0365309B6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DFDD887F-1E08-4CF7-8994-5F0365309B6E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DFDD887F-1E08-4CF7-8994-5F0365309B6E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
