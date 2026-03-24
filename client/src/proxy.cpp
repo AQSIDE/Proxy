@@ -2,7 +2,7 @@
 #include <wininet.h>
 #include "proxy.h"
 
-bool setProxy(const std::string& proxy, bool enable) {
+bool setProxy(const std::string proxy, bool enable) {
     INTERNET_PER_CONN_OPTION_LISTA list;
     INTERNET_PER_CONN_OPTIONA options[2];
 
@@ -16,7 +16,6 @@ bool setProxy(const std::string& proxy, bool enable) {
 
     options[0].dwOption = INTERNET_PER_CONN_FLAGS;
     options[0].Value.dwValue = enable ? (PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY) : PROXY_TYPE_DIRECT;
-
     options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
 
     if (enable) {
@@ -30,6 +29,13 @@ bool setProxy(const std::string& proxy, bool enable) {
 
     InternetSetOptionA(NULL, INTERNET_OPTION_SETTINGS_CHANGED, NULL, 0);
     InternetSetOptionA(NULL, INTERNET_OPTION_REFRESH, NULL, 0);
+
+    /*
+    if (enable && !login.empty()) {
+        InternetSetOptionA(NULL, INTERNET_OPTION_PROXY_USERNAME, (LPVOID)login.c_str(), login.length() + 1);
+        InternetSetOptionA(NULL, INTERNET_OPTION_PROXY_PASSWORD, (LPVOID)password.c_str(), password.length() + 1);
+    }
+    */
 
     return result != 0;
 }

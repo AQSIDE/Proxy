@@ -24,5 +24,5 @@ struct ClosePacket {
     }
 };
 
-bool setProxy(const std::string& proxy, bool enable);
+bool setProxy(const std::string proxy, bool enable);
 std::string createAddress(const std::string host, const std::string port);

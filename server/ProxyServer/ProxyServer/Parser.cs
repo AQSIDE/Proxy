@@ -4,7 +4,7 @@ namespace ProxyServer;
 
 public static class Parser
 {
-    public static UrlContext? GetUrl(string request)
+    public static ConnectContext? GetUrl(string request)
     {
         var firstLine = request.Split('\n')[0].Trim();
         var parts = firstLine.Split(' ');
@@ -38,6 +38,8 @@ public static class Parser
             TrimAddress(ref address);
             ParseAddress(address, host, port);
         }
+
+        GetProxyAuth(request, out var login, out var password);
         
         var finalHost = host.ToString();
         var finalPort = port.ToString();
@@ -47,7 +49,44 @@ public static class Parser
             finalPort = (method == ProxyMethod.CONNECT) ? "443" : "80";
         }
 
-        return new UrlContext(finalHost, finalPort, method);
+        return new ConnectContext(finalHost, finalPort, login, password, method);
+    }
+
+    private static bool GetProxyAuth(string request, out string login, out string password)
+    {
+        var parameter = "Proxy-Authorization:";
+        login = string.Empty;
+        password = string.Empty;
+        
+        var index = request.IndexOf(parameter, StringComparison.OrdinalIgnoreCase);
+        if (index == -1) return false;
+        
+        var start = index + parameter.Length;
+        var end = request.IndexOf("\r\n", start);
+        if (end == -1) end = request.Length;
+
+        var headerValue = request.Substring(start, end - start).Trim();
+        
+        if (headerValue.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        {
+            try 
+            {
+                var base64Credentials = headerValue.Substring(6).Trim();
+                var data = Convert.FromBase64String(base64Credentials);
+                var decoded = Encoding.UTF8.GetString(data);
+
+                var colonIndex = decoded.IndexOf(':');
+                if (colonIndex != -1)
+                {
+                    login = decoded.Substring(0, colonIndex);
+                    password = decoded.Substring(colonIndex + 1);
+                    return true;
+                }
+            }
+            catch {}
+        }
+
+        return false;
     }
 
     private static void TrimAddress(ref string address)
@@ -77,16 +116,22 @@ public static class Parser
     }
 }
 
-public readonly struct UrlContext
+public readonly struct ConnectContext
 {
+    public readonly string Login;
+    public readonly string Password;
+    
     public readonly string Host;
     public readonly string Port;
+    
     public readonly ProxyMethod Method;
 
-    public UrlContext(string host, string port, ProxyMethod method)
+    public ConnectContext(string host, string port, string login, string password, ProxyMethod method)
     {
         Host = host;
         Port = port;
+        Login = login;
+        Password = password;
         Method = method;
     }
 

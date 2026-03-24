@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -6,28 +7,39 @@ namespace ProxyServer;
 
 public class Proxy
 {
-    private readonly List<Client> _clients = new();
-    
+    private readonly ConcurrentDictionary<string, ClientInfo> _clients = new();
+
     private readonly TcpListener _proxyListener;
     private readonly TcpListener _clientsListener;
 
-    public Proxy(int port)
+    private readonly ProxySettings _settings;
+
+    public ProxyStatistics Statistics { get; } = new();
+    public int Connections => _clients.Count;
+    public IReadOnlyList<ClientInfo> Clients => _clients.Values.ToList().AsReadOnly();
+
+    public Proxy(int port, ProxySettings settings)
     {
-        _proxyListener = new TcpListener(IPAddress.Loopback, port);
-        _clientsListener = new TcpListener(IPAddress.Loopback, 9999);
+        _proxyListener = new TcpListener(IPAddress.Any, port);
+        _clientsListener = new TcpListener(IPAddress.Any, 9999);
+
+        Statistics.Port = port;
+        Statistics.StartTime = DateTime.UtcNow;
+
+        _settings = settings;
     }
 
     public void Start()
     {
         _proxyListener.Start();
         _clientsListener.Start();
-        
-        _ = HandleClientLoop();
+
+        //_ = HandleClientLoop();
         _ = HandleProxyLoop();
-        
-        Logger.Log($"PROXY SERVER START LISTENING", ConsoleColor.Green);
+
+        //Logger.Log($"PROXY SERVER START LISTENING", ConsoleColor.Green);
     }
-    
+
     private async Task HandleClientLoop()
     {
         while (true)
@@ -42,6 +54,8 @@ public class Proxy
         while (true)
         {
             var client = await _proxyListener.AcceptTcpClientAsync();
+            client.ReceiveTimeout = _settings.TimeoutMs;
+
             _ = HandleProxy(client);
         }
     }
@@ -50,64 +64,93 @@ public class Proxy
     {
         try
         {
-            Logger.Log($"NEW CLIENT: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
-            
-            var stream = client.GetStream();
-            var clnt = new Client(stream);
+            //Logger.Log($"NEW CLIENT: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
 
-            clnt.Reader.PacketReceived += HandlePacketReceived;
-            
-            _clients.Add(clnt);
-            
-            while (client.Connected)
-            {
-            }
-            
-            _clients.Remove(clnt);
-            client.Close();
-            stream.Close();
-            
-            Logger.Log($"CLIENT DISCONNECTED: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
+            //var stream = client.GetStream();
+            //var clnt = new ClientInfo(stream);
+
+            //clnt.Reader.PacketReceived += HandlePacketReceived;
+
+
+            //Logger.Log($"CLIENT DISCONNECTED: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
         }
         catch (Exception ex)
         {
-            Logger.Log($"[ERROR] CLIENT ERROR: {ex.Message}", ConsoleColor.Red);
+            //Logger.Log($"[ERROR] CLIENT ERROR: {ex.Message}", ConsoleColor.Red);
         }
     }
 
     private void HandlePacketReceived(byte[] packet)
     {
-        
     }
 
     private async Task HandleProxy(TcpClient client)
     {
+        var clientStream = client.GetStream();
+        var buffer = new byte[_settings.BufferSize];
+        var bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
+        if (bytesRead == 0)
+        {
+            client.Close();
+            clientStream.Close();
+            return;
+        }
+
+        var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+        var ctx = Parser.GetUrl(request);
+        if (ctx == null)
+        {
+            client.Close();
+            clientStream.Close();
+            return;
+        }
+
+        var login = ctx.Value.Login;
+        var password = ctx.Value.Password;
+        if (string.IsNullOrEmpty(login) || string.IsNullOrEmpty(password))
+        {
+            var response = Response.GetResponseBytes(Response.AUTH_REQUIRED);
+            await clientStream.WriteAsync(response, 0, response.Length);
+
+            //Logger.Log($"[AUTH] SENT 407 AUTH REQUEST TO CLIENT", ConsoleColor.Cyan);
+
+            client.Close();
+            return;
+        }
+
+        var allowed = _settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
+        if (allowed == null)
+        {
+            client.Close();
+            clientStream.Close();
+            //Logger.Log($"[AUTH] UNKNOWN CONNECTION: {login}:{password}", ConsoleColor.Red);
+            return;
+        }
+
+        if (!_clients.TryGetValue(login, out var clientInfo))
+        {
+            clientInfo = new ClientInfo(login, (IPEndPoint)client.Client.RemoteEndPoint);
+            _clients[login] = clientInfo;
+        }
+
+        clientInfo.LastActive = DateTime.UtcNow;
+        if (clientInfo.ActiveConnections >= allowed.MaxConnections)
+        {
+            client.Close();
+            clientStream.Close();
+
+            //Logger.Log($"[LIMIT] User '{login}' exceeded limit ({allowed.MaxConnections})", ConsoleColor.Magenta);
+            return;
+        }
+        
+        var host = ctx.Value.Host;
+        var port = int.Parse(ctx.Value.Port);
+        var method = ctx.Value.Method;
+        
+        ProxySession? session = null;
         try
         {
-            var clientStream = client.GetStream();
-            var buffer = new byte[8192];
-            var bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
-            if (bytesRead == 0)
-            {
-                client.Close();
-                clientStream.Close();
-                return;
-            }
-            
-            var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-            var ctx = Parser.GetUrl(request);
-            if (ctx == null)
-            {
-                client.Close();
-                clientStream.Close();
-                return;
-            }
-
-            var host = ctx.Value.Host;
-            var port = int.Parse(ctx.Value.Port);
-            var method = ctx.Value.Method;
-            
-            Logger.Log($"[CONN] CONNECTING TO: {host}:{port}, METHOD={method.ToString()}", ConsoleColor.Yellow);
+            //Logger.Log($"[CONN] CONNECTING TO: {host}:{port}, METHOD={method.ToString()}", ConsoleColor.Yellow);
 
             var server = new TcpClient();
             await server.ConnectAsync(host, port);
@@ -115,49 +158,70 @@ public class Proxy
 
             if (method == ProxyMethod.CONNECT)
             {
-                var ok = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
-                await clientStream.WriteAsync(ok);
+                var response = Response.GetResponseBytes(Response.CONN_ESTABLISHED);
+                await clientStream.WriteAsync(response);
             }
             else
             {
                 await serverStream.WriteAsync(buffer, 0, bytesRead);
             }
 
-            var clientToServer = Relay(clientStream, serverStream, $"[CLIENT -> {host}]");
-            var serverToClient = Relay(serverStream, clientStream, $"[{host} -> CLIENT]");
+            session = new ProxySession(host, client, server, clientStream, serverStream);
+            clientInfo.Sessions.TryAdd(session, 0);
+
+            var clientToServer = Relay(clientInfo, clientStream, serverStream, Direction.CLIENT_TO_HOST);
+            var serverToClient = Relay(clientInfo, serverStream, clientStream, Direction.HOST_TO_CLIENT);
 
             await Task.WhenAny(clientToServer, serverToClient);
-            
-            Logger.Log($"[FIN] CONNECTION TORN: {host}", ConsoleColor.Red);
-            
-            // Closing stream
-            clientStream.Close();
-            serverStream.Close();
-            
-            client.Close();
-            server.Close();
         }
-        catch (Exception ex)
+        catch (Exception ex) { }
+        finally
         {
-            Logger.Log($"[ERROR] PROCESSING ERROR: {ex.Message}", ConsoleColor.Red);
+            clientInfo.Sessions.TryRemove(session, out _);
+            session?.Close();
+            
+            var remaining = clientInfo.ActiveConnections;
+            if (remaining <= 0)
+            {
+                _clients.TryRemove(login, out _);
+            }
         }
     }
 
-    private async Task Relay(NetworkStream input, NetworkStream output, string direction)
+    private async Task Relay(ClientInfo client, NetworkStream input, NetworkStream output, Direction direction)
     {
-        byte[] relayBuffer = new byte[8192];
+        var relayBuffer = new byte[_settings.BufferSize];
         try
         {
             while (true)
             {
-                var bytes = await input.ReadAsync(relayBuffer, 0, relayBuffer.Length);
+                using var cts = new CancellationTokenSource(_settings.TimeoutMs);
+                
+                var bytes = await input.ReadAsync(relayBuffer, 0, relayBuffer.Length, cts.Token);
                 if (bytes == 0) break;
 
-                await output.WriteAsync(relayBuffer, 0, bytes);
+                await output.WriteAsync(relayBuffer, 0, bytes, cts.Token);
 
-                Logger.Log($"{direction}: {bytes} BYTES TRANSFERRED", ConsoleColor.Green);
+                if (direction == Direction.CLIENT_TO_HOST)
+                {
+                    Interlocked.Add(ref client.BytesSent, bytes);
+                    Interlocked.Add(ref Statistics.Sent, bytes);
+                }
+                else
+                {
+                    Interlocked.Add(ref client.BytesReceived, bytes);
+                    Interlocked.Add(ref Statistics.Received, bytes);
+                }
             }
         }
-        catch (Exception ex) { }
+        catch
+        {
+        }
     }
+}
+
+public enum Direction
+{
+    CLIENT_TO_HOST,
+    HOST_TO_CLIENT,
 }

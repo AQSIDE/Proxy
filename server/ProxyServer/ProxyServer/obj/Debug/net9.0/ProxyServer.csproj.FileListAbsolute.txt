@@ -12,3 +12,4 @@ C:\Users\PC\Documents\GitHub\Proxy\server\ProxyServer\ProxyServer\obj\Debug\net9
 C:\Users\PC\Documents\GitHub\Proxy\server\ProxyServer\ProxyServer\obj\Debug\net9.0\ProxyServer.pdb
 C:\Users\PC\Documents\GitHub\Proxy\server\ProxyServer\ProxyServer\obj\Debug\net9.0\ProxyServer.genruntimeconfig.cache
 C:\Users\PC\Documents\GitHub\Proxy\server\ProxyServer\ProxyServer\obj\Debug\net9.0\ref\ProxyServer.dll
+C:\Users\PC\Documents\GitHub\Proxy\server\ProxyServer\ProxyServer\obj\Debug\net9.0\ProxyServer.sourcelink.json
