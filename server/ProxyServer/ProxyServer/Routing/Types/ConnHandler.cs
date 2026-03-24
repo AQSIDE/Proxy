@@ -14,8 +14,8 @@ public class ConnHandler : ChoiceHandler
                 await ctx.Router.Route(new ConnectionsHandler());
                 return false;
             case "1":
-                _client.KillAll();
-    
+                ctx.Server.Kill(_client);
+                
                 Console.Clear();
                 Logger.Log($"[!!!] CONNECTION TERMINATED for user: {_client.Login}", ConsoleColor.Red);
                 Logger.Log("");
@@ -64,6 +64,7 @@ public class ConnHandler : ChoiceHandler
         Logger.Log($"Remote IP:    {_client.EndPoint}");
         Logger.Log($"Total Sent:   {ctx.Server.Statistics.GetFormattedSize(_client.BytesSent)}");
         Logger.Log($"Total Received: {ctx.Server.Statistics.GetFormattedSize(_client.BytesReceived)}");
+        Logger.Log($"Last activity: {_client.LastActive:HH:mm:ss}");
         Logger.Log("---------------------------");
         
         var sessions = _client.Sessions.Keys.ToList();

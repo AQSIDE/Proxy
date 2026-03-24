@@ -22,6 +22,7 @@ public class Proxy
     public Proxy(int port, ProxySettings settings)
     {
         _proxyListener = new TcpListener(IPAddress.Any, port);
+        //_proxyListener.Server.DualMode = true;
 
         Statistics.Port = port;
         Statistics.StartTime = DateTime.UtcNow;
@@ -41,6 +42,16 @@ public class Proxy
             Logger.Log($"[DEBUG] User {client.Login} removed from active list: {removed}", ConsoleColor.Gray);
     }
 
+    public void Kill(ClientInfo client)
+    {
+        client.KillAll();
+        
+        var removed = _clients.TryRemove(client.Login, out _);
+    
+        if (_settings.UseDebug)
+            Logger.Log($"[DEBUG] User {client.Login} was killed: {removed}", ConsoleColor.Gray);
+    }
+
     public void Start()
     {
         _proxyListener.Start();
@@ -58,7 +69,7 @@ public class Proxy
             var client = await _proxyListener.AcceptTcpClientAsync();
             //client.ReceiveTimeout = _settings.TimeoutMs;
             
-            var ip = (IPEndPoint)client.Client.RemoteEndPoint;
+            var ip = client.Client.RemoteEndPoint as IPEndPoint;
             var ipStr = ip?.Address.ToString();
             
             if (string.IsNullOrEmpty(ipStr))
