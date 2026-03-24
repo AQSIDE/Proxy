@@ -10,9 +10,6 @@ public class ConnHandler : ChoiceHandler
     {
         switch (text)
         {
-            case "-1":
-                await ctx.Router.Route(new ConnectionsHandler());
-                return false;
             case "0":
                 await ctx.Router.Route(new ConnectionsHandler());
                 return false;
@@ -26,6 +23,30 @@ public class ConnHandler : ChoiceHandler
     
                 Console.ReadKey();
                 
+                await ctx.Router.Route(new ConnectionsHandler());
+                return false;
+            case "2":
+                Console.Clear();
+                Logger.Log($"--- BAN USER: {_client.Login} ---", ConsoleColor.Yellow);
+                Logger.Log("Enter ban time in minutes (0 back):", ConsoleColor.White);
+    
+                if (!int.TryParse(Console.ReadLine(), out var minutes)) minutes = 0;
+                if (minutes <= 0) 
+                {
+                    await ctx.Router.Route(new ConnHandler());
+                    return false;
+                }
+
+                var ipStr = _client.EndPoint.Address.ToString();
+                ctx.Server.Ban(_client, minutes);
+                ctx.SelectedConnectionId = -1;
+
+                Logger.Log($"[!!!] USER {_client.Login} BANNED for {minutes} min. (IP: {ipStr})", ConsoleColor.Red);
+
+                Logger.Log("");
+                Logger.Log("Press any key...");
+                Console.ReadKey();
+    
                 await ctx.Router.Route(new ConnectionsHandler());
                 return false;
         }
@@ -64,7 +85,8 @@ public class ConnHandler : ChoiceHandler
         Logger.Log("---------------------------");
         Logger.Log("");
         Logger.Log("1 - Kill");
-        Logger.Log("-1 - Back");
+        Logger.Log("2 - Ban");
+        Logger.Log("0 - Back");
         Logger.Log("");
         Logger.Log(">>> ", newLine:false);
     }

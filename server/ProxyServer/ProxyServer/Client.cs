@@ -31,5 +31,19 @@ public class ClientInfo
         {
             session.Close();
         }
+        
+        Sessions.Clear();
+    }
+}
+
+public class BannedClient
+{
+    public string IP { get; set; }
+    public DateTime Until { get; set; }
+
+    public BannedClient(string ip, DateTime until)
+    {
+        IP = ip;
+        Until = until;
     }
 }

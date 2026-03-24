@@ -8,11 +8,8 @@ public class ConnectionsHandler : ChoiceHandler
     {
         switch (text)
         {
-            case "-1":
-                await ctx.Router.Route(new MainMenuHandler());
-                return false;
             case "0":
-                await ctx.Router.Route(new ConnectionsHandler());
+                await ctx.Router.Route(new MainMenuHandler());
                 return false;
         }
 
@@ -55,9 +52,8 @@ public class ConnectionsHandler : ChoiceHandler
         }
         Logger.Log("---------------------------");
         Logger.Log("");
-        Logger.Log("-1 - Back");
-        Logger.Log("0 - Refresh");
         Logger.Log("[ID] - Select Connection");
+        Logger.Log("0 - Back");
         Logger.Log("");
         Logger.Log(">>> ", newLine:false);
     }

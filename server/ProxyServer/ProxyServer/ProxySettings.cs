@@ -5,6 +5,7 @@ public class ProxySettings
     public List<AllowedConnection> AllowedConnections { get; init; }
     public int TimeoutMs { get; init; } = 30000;
     public int BufferSize { get; init; }
+    public bool UseDebug { get; init; }
 }
 
 public class AllowedConnection

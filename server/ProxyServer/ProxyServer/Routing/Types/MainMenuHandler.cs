@@ -9,13 +9,23 @@ public class MainMenuHandler : ChoiceHandler
         switch (text)
         {
             case "0":
-                Environment.Exit(0);
-                return false;
+                Console.Clear();
+                Logger.Log("ARE YOU SURE WANT TO EXIT?", ConsoleColor.Red);
+                Logger.Log("");
+                Logger.Log("(y/n): ", newLine:false);
+                var choice = Console.ReadLine();
+                if (string.Equals(choice, "y", StringComparison.OrdinalIgnoreCase))
+                {
+                    Environment.Exit(0);
+                    return false;
+                }
+                
+                return true;
             case "1":
-                await ctx.Router.Route(new MainMenuHandler());
+                await ctx.Router.Route(new ConnectionsHandler());
                 return false;
             case "2":
-                await ctx.Router.Route(new ConnectionsHandler());
+                await ctx.Router.Route(new BanlistHandler());
                 return false;
         }
         
@@ -34,8 +44,8 @@ public class MainMenuHandler : ChoiceHandler
         Logger.Log($"Traffic: Out: {stats.GetFormattedSize(stats.Sent)} / In: {stats.GetFormattedSize(stats.Received)}");
         Logger.Log("---------------------------");
         Logger.Log("");
-        Logger.Log("1 - Refresh");
-        Logger.Log("2 - Connections");
+        Logger.Log("1 - Connections");
+        Logger.Log("2 - Blacklist");
         Logger.Log("0 - Exit");
         Logger.Log("");
         Logger.Log(">>> ", newLine:false);

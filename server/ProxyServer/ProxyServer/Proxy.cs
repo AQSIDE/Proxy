@@ -8,20 +8,20 @@ namespace ProxyServer;
 public class Proxy
 {
     private readonly ConcurrentDictionary<string, ClientInfo> _clients = new();
+    private readonly ConcurrentDictionary<string, BannedClient> _blackList = new();
 
     private readonly TcpListener _proxyListener;
-    private readonly TcpListener _clientsListener;
 
     private readonly ProxySettings _settings;
 
     public ProxyStatistics Statistics { get; } = new();
     public int Connections => _clients.Count;
     public IReadOnlyList<ClientInfo> Clients => _clients.Values.ToList().AsReadOnly();
+    public IReadOnlyList<BannedClient> Blacklist => _blackList.Values.ToList().AsReadOnly();
 
     public Proxy(int port, ProxySettings settings)
     {
         _proxyListener = new TcpListener(IPAddress.Any, port);
-        _clientsListener = new TcpListener(IPAddress.Any, 9999);
 
         Statistics.Port = port;
         Statistics.StartTime = DateTime.UtcNow;
@@ -29,24 +29,26 @@ public class Proxy
         _settings = settings;
     }
 
+    public void Ban(ClientInfo client, int minutes)
+    {
+        var ip = client.EndPoint.Address.ToString();
+        client.KillAll();
+        
+        _blackList[ip] = new BannedClient(ip, DateTime.UtcNow.AddMinutes(minutes));
+        var removed = _clients.TryRemove(client.Login, out _);
+    
+        if (_settings.UseDebug)
+            Logger.Log($"[DEBUG] User {client.Login} removed from active list: {removed}", ConsoleColor.Gray);
+    }
+
     public void Start()
     {
         _proxyListener.Start();
-        _clientsListener.Start();
-
-        //_ = HandleClientLoop();
+        
         _ = HandleProxyLoop();
 
-        //Logger.Log($"PROXY SERVER START LISTENING", ConsoleColor.Green);
-    }
-
-    private async Task HandleClientLoop()
-    {
-        while (true)
-        {
-            var client = await _clientsListener.AcceptTcpClientAsync();
-            _ = HandleClient(client);
-        }
+        if (_settings.UseDebug)
+            Logger.Log($"PROXY SERVER START LISTENING", ConsoleColor.Green);
     }
 
     private async Task HandleProxyLoop()
@@ -54,34 +56,39 @@ public class Proxy
         while (true)
         {
             var client = await _proxyListener.AcceptTcpClientAsync();
-            client.ReceiveTimeout = _settings.TimeoutMs;
+            //client.ReceiveTimeout = _settings.TimeoutMs;
+            
+            var ip = (IPEndPoint)client.Client.RemoteEndPoint;
+            var ipStr = ip?.Address.ToString();
+            
+            if (string.IsNullOrEmpty(ipStr))
+            {
+                client.Close();
+                continue;
+            }
+
+            if (_blackList.TryGetValue(ipStr, out var banned))
+            {
+                if (DateTime.UtcNow <  banned.Until)
+                {
+                    if (_settings.UseDebug)
+                        Logger.Log($"BANNED IP {ipStr} DISCONNECTED. Ban until: {banned.Until}", ConsoleColor.Red);
+                    
+                    client.Close();
+                    continue;
+                }
+                else
+                {
+                    if (_blackList.TryRemove(ipStr, out _))
+                    {
+                        if (_settings.UseDebug)
+                            Logger.Log($"[UNBAN] IP {ipStr} has been automatically unbanned", ConsoleColor.Green);
+                    }
+                }
+            }
 
             _ = HandleProxy(client);
         }
-    }
-
-    private async Task HandleClient(TcpClient client)
-    {
-        try
-        {
-            //Logger.Log($"NEW CLIENT: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
-
-            //var stream = client.GetStream();
-            //var clnt = new ClientInfo(stream);
-
-            //clnt.Reader.PacketReceived += HandlePacketReceived;
-
-
-            //Logger.Log($"CLIENT DISCONNECTED: {client.Client.RemoteEndPoint}", ConsoleColor.Green);
-        }
-        catch (Exception ex)
-        {
-            //Logger.Log($"[ERROR] CLIENT ERROR: {ex.Message}", ConsoleColor.Red);
-        }
-    }
-
-    private void HandlePacketReceived(byte[] packet)
-    {
     }
 
     private async Task HandleProxy(TcpClient client)
@@ -112,9 +119,11 @@ public class Proxy
             var response = Response.GetResponseBytes(Response.AUTH_REQUIRED);
             await clientStream.WriteAsync(response, 0, response.Length);
 
-            //Logger.Log($"[AUTH] SENT 407 AUTH REQUEST TO CLIENT", ConsoleColor.Cyan);
+            if (_settings.UseDebug) 
+                Logger.Log($"[AUTH] SENT 407 AUTH REQUEST TO CLIENT", ConsoleColor.Cyan);
 
             client.Close();
+            clientStream.Close();
             return;
         }
 
@@ -123,7 +132,9 @@ public class Proxy
         {
             client.Close();
             clientStream.Close();
-            //Logger.Log($"[AUTH] UNKNOWN CONNECTION: {login}:{password}", ConsoleColor.Red);
+            
+            if (_settings.UseDebug) 
+                Logger.Log($"[AUTH] UNKNOWN CONNECTION: {login}:{password}", ConsoleColor.Red);
             return;
         }
 
@@ -139,68 +150,96 @@ public class Proxy
             client.Close();
             clientStream.Close();
 
-            //Logger.Log($"[LIMIT] User '{login}' exceeded limit ({allowed.MaxConnections})", ConsoleColor.Magenta);
+            if (_settings.UseDebug) 
+                Logger.Log($"[LIMIT] User '{login}' exceeded limit ({allowed.MaxConnections})", ConsoleColor.Magenta);
             return;
         }
-        
+
         var host = ctx.Value.Host;
         var port = int.Parse(ctx.Value.Port);
         var method = ctx.Value.Method;
-        
+
+        var cts = new CancellationTokenSource();
         ProxySession? session = null;
+        Task? clientToServer = null;
+        Task? serverToClient = null;
         try
         {
-            //Logger.Log($"[CONN] CONNECTING TO: {host}:{port}, METHOD={method.ToString()}", ConsoleColor.Yellow);
+            if (_settings.UseDebug) 
+                Logger.Log($"[CONN] CONNECTING TO: {host}:{port}, METHOD={method.ToString()}");
 
             var server = new TcpClient();
-            await server.ConnectAsync(host, port);
+            await server.ConnectAsync(host, port, cts.Token);
             var serverStream = server.GetStream();
 
             if (method == ProxyMethod.CONNECT)
             {
                 var response = Response.GetResponseBytes(Response.CONN_ESTABLISHED);
-                await clientStream.WriteAsync(response);
+                await clientStream.WriteAsync(response, cts.Token);
             }
             else
             {
-                await serverStream.WriteAsync(buffer, 0, bytesRead);
+                await serverStream.WriteAsync(buffer, 0, bytesRead, cts.Token);
             }
 
-            session = new ProxySession(host, client, server, clientStream, serverStream);
+            session = new ProxySession(host, client, server, clientStream, serverStream, cts);
             clientInfo.Sessions.TryAdd(session, 0);
 
-            var clientToServer = Relay(clientInfo, clientStream, serverStream, Direction.CLIENT_TO_HOST);
-            var serverToClient = Relay(clientInfo, serverStream, clientStream, Direction.HOST_TO_CLIENT);
+            clientToServer = Relay(clientInfo, clientStream, serverStream, Direction.CLIENT_TO_HOST, cts.Token);
+            serverToClient = Relay(clientInfo, serverStream, clientStream, Direction.HOST_TO_CLIENT, cts.Token);
 
             await Task.WhenAny(clientToServer, serverToClient);
         }
-        catch (Exception ex) { }
+        catch (Exception ex) 
+        {
+            if (_settings.UseDebug) Logger.Log($"[PROX ERROR]: {ex.Message}", ConsoleColor.Red);
+        }
         finally
         {
-            clientInfo.Sessions.TryRemove(session, out _);
-            session?.Close();
+            await cts.CancelAsync();
             
+            var tasks = new List<Task>();
+            if (clientToServer != null) tasks.Add(clientToServer);
+            if (serverToClient != null) tasks.Add(serverToClient);
+    
+            if (tasks.Count > 0)
+                await Task.WhenAll(tasks);
+                
+            if (session != null)
+            {
+                session.Close();
+                clientInfo?.Sessions.TryRemove(session, out _);
+            }
+
             var remaining = clientInfo.ActiveConnections;
             if (remaining <= 0)
             {
                 _clients.TryRemove(login, out _);
+                
+                if (_settings.UseDebug) 
+                    Logger.Log($"[FIN] CLIENT {clientInfo.Login} WAS DISCONNECTED");
+            }
+            else
+            {
+                if (_settings.UseDebug) 
+                    Logger.Log($"[FIN] CLIENT {clientInfo.Login} HOST DISCONNECTED {host}:{port}");
             }
         }
     }
 
-    private async Task Relay(ClientInfo client, NetworkStream input, NetworkStream output, Direction direction)
+    private async Task Relay(ClientInfo client, NetworkStream input, NetworkStream output, Direction direction,
+        CancellationToken ct)
     {
         var relayBuffer = new byte[_settings.BufferSize];
+
         try
         {
-            while (true)
+            while (!ct.IsCancellationRequested)
             {
-                using var cts = new CancellationTokenSource(_settings.TimeoutMs);
-                
-                var bytes = await input.ReadAsync(relayBuffer, 0, relayBuffer.Length, cts.Token);
+                var bytes = await input.ReadAsync(relayBuffer, 0, relayBuffer.Length, ct);
                 if (bytes == 0) break;
 
-                await output.WriteAsync(relayBuffer, 0, bytes, cts.Token);
+                await output.WriteAsync(relayBuffer, 0, bytes, ct);
 
                 if (direction == Direction.CLIENT_TO_HOST)
                 {
@@ -214,8 +253,12 @@ public class Proxy
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not ObjectDisposedException)
         {
+            if (_settings.UseDebug)
+            {
+                Logger.Log($"[RELAY ERROR] {direction} for client {client.Login}: {ex.Message}", ConsoleColor.Red);
+            }
         }
     }
 }
