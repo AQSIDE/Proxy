@@ -1,6 +1,9 @@
 [Bb]in/
 [Oo]bj/
 
+[Ii]nclude/
+[Ll]ib/
+
 .idea/
 .vs/
 .vscode/
