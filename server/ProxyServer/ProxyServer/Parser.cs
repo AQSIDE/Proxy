@@ -4,49 +4,54 @@ namespace ProxyServer;
 
 public static class Parser
 {
-    public static ConnectContext? GetUrl(string request)
+    public static ConnectContext? GetContext(byte[] buffer, int bytesRead, ProtocolType protocol)
     {
-        var firstLine = request.Split('\n')[0].Trim();
-        var parts = firstLine.Split(' ');
-        if (parts.Length < 2) return null;
-
+        var finalHost = string.Empty;
+        var finalPort = string.Empty;
+        
+        var login = string.Empty;
+        var password = string.Empty;
         var method = ProxyMethod.UNKNOWN;
-        var host = new StringBuilder();
-        var port = new StringBuilder();
         
-        if (parts[0] == "CONNECT")
+        if (protocol == ProtocolType.HTTP)
         {
-            method = ProxyMethod.CONNECT;
+            var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
             
-            var address = parts[1];
-            TrimAddress(ref address);
-            ParseAddress(address, host, port);
-        }
-        else if (parts[0] == "GET")
-        {
-            method = ProxyMethod.GET;
+            var firstLine = request.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)[0].Trim();
+            var parts = firstLine.Split(' ');
+            if (parts.Length < 2) return null;
             
-            var address = parts[1];
-            TrimAddress(ref address);
-            ParseAddress(address, host, port);
-        }
-        else if (parts[0] == "POST")
-        {
-            method = ProxyMethod.POST; 
-            
-            var address = parts[1];
-            TrimAddress(ref address);
-            ParseAddress(address, host, port);
-        }
-
-        GetProxyAuth(request, out var login, out var password);
+            var host = new StringBuilder();
+            var port = new StringBuilder();
         
-        var finalHost = host.ToString();
-        var finalPort = port.ToString();
+            if (parts[0] == "CONNECT")
+            {
+                method = ProxyMethod.CONNECT;
+            
+                var address = parts[1];
+                TrimAddress(ref address);
+                ParseAddress(address, host, port);
+            }
+            else 
+            {
+                var address = parts[1];
+                TrimAddress(ref address);
+                ParseAddress(address, host, port);
+            }
 
-        if (string.IsNullOrEmpty(finalPort))
+            GetProxyAuth(request, out login, out password);
+            
+            finalHost = host.ToString();
+            finalPort = port.ToString();
+
+            if (string.IsNullOrEmpty(finalPort))
+            {
+                finalPort = (method == ProxyMethod.CONNECT) ? "443" : "80";
+            }
+        }
+        else
         {
-            finalPort = (method == ProxyMethod.CONNECT) ? "443" : "80";
+            return null;
         }
 
         return new ConnectContext(finalHost, finalPort, login, password, method);
@@ -144,7 +149,5 @@ public readonly struct ConnectContext
 public enum ProxyMethod
 {
     UNKNOWN,
-    CONNECT, // HTTPS
-    GET,     // HTTP
-    POST     // HTTP
+    CONNECT,
 }

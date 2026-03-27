@@ -39,7 +39,7 @@ public class Proxy
         var removed = _clients.TryRemove(client.Login, out _);
     
         if (_settings.UseDebug)
-            Logger.Log($"[DEBUG] User {client.Login} removed from active list: {removed}", ConsoleColor.Gray);
+            Logger.Log($"[DEBUG] User {client.Login} removed from active list: {removed}", ConsoleColor.Yellow);
     }
 
     public void Kill(ClientInfo client)
@@ -49,7 +49,7 @@ public class Proxy
         var removed = _clients.TryRemove(client.Login, out _);
     
         if (_settings.UseDebug)
-            Logger.Log($"[DEBUG] User {client.Login} was killed: {removed}", ConsoleColor.Gray);
+            Logger.Log($"[DEBUG] User {client.Login} was killed: {removed}", ConsoleColor.Red);
     }
 
     public void Start()
@@ -98,28 +98,45 @@ public class Proxy
                 }
             }
 
-            _ = HandleProxy(client);
+            _ = HandleProxy(client, ip);
         }
     }
 
-    private async Task HandleProxy(TcpClient client)
+    private async Task HandleProxy(TcpClient client, IPEndPoint ip)
     {
         var clientStream = client.GetStream();
-        var buffer = new byte[_settings.BufferSize];
+        var buffer = new byte[_settings.HandshakeBufferSize];
+        
         var bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length);
         if (bytesRead == 0)
         {
-            client.Close();
-            clientStream.Close();
+            if (_settings.UseDebug) Logger.Log($"[CLOSE] Client {ip} disconnected immediately.", ConsoleColor.Gray);
+            CloseClient(client, clientStream);
             return;
         }
+        
+        var protocol = Protocol.GetProtocol(buffer);
+        if (_settings.UseDebug)
+            Logger.Log($"[DETECT] Protocol: {protocol} | Initial bytes: {bytesRead}", ConsoleColor.Cyan);
 
-        var request = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-        var ctx = Parser.GetUrl(request);
+        if (protocol == ProtocolType.UNKNOWN)
+        {
+            if (_settings.UseDebug) Logger.Log($"[WARN] Unknown protocol from {ip}. Dropping.", ConsoleColor.Red);
+            CloseClient(client, clientStream);
+            return;
+        }
+        
+        var totalRead = await Protocol.ReadFullPacket(clientStream, buffer, bytesRead, protocol);
+        if (_settings.UseDebug && totalRead > bytesRead)
+            Logger.Log($"[PACKET] Read more data. Total: {totalRead} bytes", ConsoleColor.DarkGreen);
+        
+        var ctx = Parser.GetContext(buffer, totalRead, protocol);
         if (ctx == null)
         {
-            client.Close();
-            clientStream.Close();
+            if (_settings.UseDebug) 
+                Logger.Log($"[ERROR] Parser failed to get context for {protocol}", ConsoleColor.Red);
+            
+            CloseClient(client, clientStream);
             return;
         }
 
@@ -129,20 +146,21 @@ public class Proxy
         {
             var response = Response.GetResponseBytes(Response.AUTH_REQUIRED);
             await clientStream.WriteAsync(response, 0, response.Length);
+            
+            CloseClient(client, clientStream);
 
             if (_settings.UseDebug) 
                 Logger.Log($"[AUTH] SENT 407 AUTH REQUEST TO CLIENT", ConsoleColor.Cyan);
-
-            client.Close();
-            clientStream.Close();
             return;
         }
 
         var allowed = _settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
         if (allowed == null)
         {
-            client.Close();
-            clientStream.Close();
+            var response = Response.GetResponseBytes(Response.AUTH_REQUIRED);
+            await clientStream.WriteAsync(response, 0, response.Length);
+            
+            CloseClient(client, clientStream);
             
             if (_settings.UseDebug) 
                 Logger.Log($"[AUTH] UNKNOWN CONNECTION: {login}:{password}", ConsoleColor.Red);
@@ -151,7 +169,7 @@ public class Proxy
 
         if (!_clients.TryGetValue(login, out var clientInfo))
         {
-            clientInfo = new ClientInfo(login, (IPEndPoint)client.Client.RemoteEndPoint);
+            clientInfo = new ClientInfo(login, ip);
             _clients[login] = clientInfo;
         }
 
@@ -190,7 +208,7 @@ public class Proxy
             }
             else
             {
-                await serverStream.WriteAsync(buffer, 0, bytesRead, cts.Token);
+                await serverStream.WriteAsync(buffer, 0, totalRead, cts.Token);
             }
 
             session = new ProxySession(host, client, server, clientStream, serverStream, cts);
@@ -241,7 +259,7 @@ public class Proxy
     private async Task Relay(ClientInfo client, NetworkStream input, NetworkStream output, Direction direction,
         CancellationToken ct)
     {
-        var relayBuffer = new byte[_settings.BufferSize];
+        var relayBuffer = new byte[_settings.RelayBufferSize];
 
         try
         {
@@ -271,6 +289,12 @@ public class Proxy
                 Logger.Log($"[RELAY ERROR] {direction} for client {client.Login}: {ex.Message}", ConsoleColor.Red);
             }
         }
+    }
+    
+    private void CloseClient(TcpClient c, NetworkStream s)
+    {
+        s?.Close();
+        c?.Close();
     }
 }
 

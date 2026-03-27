@@ -8,7 +8,8 @@ public class Program
     {
         var setting = new ProxySettings
         {
-            BufferSize = 65536,
+            RelayBufferSize = 65536,
+            HandshakeBufferSize = 8192,
             UseDebug = false,
             AllowedConnections = new List<AllowedConnection>
             {
