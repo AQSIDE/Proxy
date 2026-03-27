@@ -14,23 +14,23 @@ public class Proxy
 
     private readonly TcpListener _proxyListener;
     private readonly bool _debugMode;
-    private readonly ProxySettings _settings;
 
+    public ProxySettingsLoader SettingsLoader { get; }
+    public ProxySettings Settings { get; private set; }
     public ProxyStatistics Statistics { get; } = new();
     public int Connections => _clients.Count;
     public IReadOnlyList<ClientInfo> Clients => _clients.Values.ToList().AsReadOnly();
     public IReadOnlyList<BannedClient> Blacklist => _blackList.Values.ToList().AsReadOnly();
 
-    public Proxy(int port, ProxySettings settings, bool debugMode)
+    public Proxy(ProxySettingsLoader loader, int port, bool debugMode)
     {
         _debugMode = debugMode;
         _proxyListener = new TcpListener(IPAddress.Any, port);
         //_proxyListener.Server.DualMode = true;
 
+        SettingsLoader = loader;
         Statistics.Port = port;
         Statistics.StartTime = DateTime.UtcNow;
-
-        _settings = settings;
     }
 
     public void Ban(ClientInfo client, int minutes)
@@ -53,6 +53,21 @@ public class Proxy
 
         if (_debugMode)
             Logger.Log($"[DEBUG] User {client.Login} was killed: {removed}", ConsoleColor.Red);
+    }
+
+    public void LoadSettings(ProxySettings settings)
+    {
+        Settings = settings;
+        
+        if (!_clients.IsEmpty)
+        {
+            foreach (var client in _clients.Values)
+            {
+                client.KillAll();
+            }
+        
+            _clients.Clear();
+        }
     }
 
     public void Start()
@@ -117,11 +132,11 @@ public class Proxy
             var clientStream = client.GetStream();
             session.ClientStream = clientStream;
             
-            var buffer = new byte[_settings.HandshakeBufferSize];
+            var buffer = new byte[Settings.HandshakeBufferSize];
             var bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length, session.Cts.Token);
             if (bytesRead == 0)
             {
-                if (_debugMode) Logger.Log($"[CLOSE] Client {ip} disconnected immediately.", ConsoleColor.Gray);
+                if (_debugMode) Logger.Log($"[CLOSE] Client {ip} disconnected immediately.", ConsoleColor.Red);
                 return;
             }
 
@@ -134,11 +149,9 @@ public class Proxy
 
             var isAuthOk = false;
             var totalRead = await Protocol.ReadFullPacket(clientStream, buffer, bytesRead, protocol);
-            if (_debugMode && totalRead > bytesRead)
-                Logger.Log($"[PACKET] Read more data. Total: {totalRead} bytes", ConsoleColor.DarkGreen);
             
             if (_debugMode)
-                Logger.Log($"[DETECT] Protocol: {protocol} | Bytes: {totalRead} | Initial Bytes: {bytesRead}", ConsoleColor.Cyan);
+                Logger.Log($"[DETECT] Protocol: {protocol} | Bytes: {totalRead} | Initial Bytes: {bytesRead}", ConsoleColor.Green);
             
             if (protocol == ProtocolType.HTTP)
             {
@@ -207,8 +220,8 @@ public class Proxy
     private async Task Relay(ClientInfo client, NetworkStream input, NetworkStream output, Direction direction,
         CancellationTokenSource cts)
     {
-        var relayBuffer = new byte[_settings.RelayBufferSize];
-        var idleTimer = TimeSpan.FromSeconds(_settings.TimeoutSec);
+        var relayBuffer = new byte[Settings.RelayBufferSize];
+        var idleTimer = TimeSpan.FromSeconds(Settings.TimeoutSec);
 
         try
         {
@@ -262,7 +275,7 @@ public class Proxy
         var password = authPacket.Password;
         session.Login = login;
         
-        var allowed = _settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
+        var allowed = Settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
         if (allowed == null)
         {
             await SendNotAuth(session.ClientStream!, login, ProtocolType.SOCKS5, session.Cts.Token);
@@ -296,6 +309,9 @@ public class Proxy
             session.ServerStream = server.GetStream();
 
             await session.ClientStream.WriteAsync(Response.SUCCESS_SOCKS5, 0, Response.SUCCESS_SOCKS5.Length, session.Cts.Token);
+            
+            if (_debugMode)
+                Logger.Log($"[SOCKS5] Client requests CONNECT to {host}:{port}");
         }
         catch (Exception ex)
         {
@@ -318,7 +334,7 @@ public class Proxy
         var password = context.Value.Password;
         session.Login = login;
     
-        var allowed = _settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
+        var allowed = Settings.AllowedConnections.FirstOrDefault(u => u.Login == login && u.Password == password);
         if (allowed == null)
         {
             await SendNotAuth(session.ClientStream!, login, ProtocolType.HTTP, session.Cts.Token);

@@ -28,6 +28,9 @@ public class MainMenuHandler : ChoiceHandler
             case "2":
                 await ctx.Router.Route(new BanlistHandler());
                 return false;
+            case "3":
+                await ctx.Router.Route(new ConfigHandler());
+                return false;
         }
         
         return true;
@@ -53,6 +56,7 @@ public class MainMenuHandler : ChoiceHandler
         Logger.Log("");
         Logger.Log("1 - Connections");
         Logger.Log("2 - Blacklist");
+        Logger.Log("3 - Config");
         Logger.Log("0 - Exit");
         Logger.Log("");
         Logger.Log(">>> ", newLine: false);

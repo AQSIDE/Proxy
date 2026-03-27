@@ -6,27 +6,14 @@ public class Program
 {
     static async Task Main(string[] args)
     {
-        var setting = new ProxySettings
-        {
-            RelayBufferSize = 65536,
-            HandshakeBufferSize = 8192,
-            TimeoutSec = 300,
-            AllowedConnections = new List<AllowedConnection>
-            {
-                new AllowedConnection { Login = "root30", Password = "password", MaxConnections = 30},
-                new AllowedConnection { Login = "root50", Password = "password", MaxConnections = 50},
-                new AllowedConnection { Login = "root80", Password = "password", MaxConnections = 80},
-                new AllowedConnection { Login = "root90", Password = "password", MaxConnections = 90},
-                new AllowedConnection { Login = "root100", Password = "password", MaxConnections = 100},
-                new AllowedConnection { Login = "root150", Password = "password", MaxConnections = 150},
-                new AllowedConnection { Login = "root200", Password = "password", MaxConnections = 200},
-            }
-        };
+        var loader = new ProxySettingsLoader();
+        var setting  = loader.Load();
 
         var port = args.Length > 0 ? int.Parse(args[0]) : 8888;
         var useDebug = args.Length > 1 ? bool.Parse(args[1]) : false;
         
-        var proxy = new Proxy(port, setting, useDebug);
+        var proxy = new Proxy(loader, port, useDebug);
+        proxy.LoadSettings(setting);
         proxy.Start();
 
         if (!useDebug)
