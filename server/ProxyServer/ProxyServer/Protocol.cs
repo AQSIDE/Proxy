@@ -52,9 +52,13 @@ public static class Protocol
             return false;
         }
         
+        // min 2 bytes
         if (protocol == ProtocolType.SOCKS5)
         {
-            return totalRead >= 3; 
+            if (totalRead < 2) return false;
+            
+            int methodsCount = buffer[1]; 
+            return totalRead >= 2 + methodsCount;
         }
 
         return true;

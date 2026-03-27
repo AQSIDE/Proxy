@@ -107,6 +107,19 @@ namespace ProxyServer.Buffer
 
             return System.Text.Encoding.ASCII.GetString(bytes.ToArray());
         }
+        
+        public string ReadString(int length)
+        {
+            if (length <= 0) return string.Empty;
+    
+            var buffer = new byte[length];
+            for (int i = 0; i < length; i++)
+            {
+                buffer[i] = ReadByte();
+            }
+            
+            return System.Text.Encoding.UTF8.GetString(buffer);
+        }
 
         public bool ReadBool() => GetValue() != 0;
 

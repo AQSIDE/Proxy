@@ -4,28 +4,27 @@ namespace ProxyServer;
 
 public class ProxySession
 {
-    public string Host { get;}
-    public TcpClient Client { get; }
-    public TcpClient Server { get; }
-    public NetworkStream? ClientStream { get; }
-    public NetworkStream? ServerStream { get; }
-    public DateTime ConnectedAt { get; }
+    public ProtocolType ProtocolType { get; set; }
+    public string Host { get; set; }
+    public int Port { get; set; }
+    public int MaxConnections { get; set; }
+    public string Login { get; set; }
+    public TcpClient Client { get; set; }
+    public TcpClient Server { get; set; }
+    public NetworkStream? ClientStream { get; set; }
+    public NetworkStream? ServerStream { get; set; }
+    public DateTime ConnectedAt { get; set; }
     public CancellationTokenSource Cts { get; }
 
-    public ProxySession(string host, TcpClient client, TcpClient server, NetworkStream clientStream, NetworkStream serverStream, CancellationTokenSource cts)
+    public ProxySession(CancellationTokenSource cts)
     {
-        this.Host = host;
-        this.Client = client;
-        this.Server = server;
-        this.ClientStream = clientStream;
-        this.ServerStream = serverStream;
         this.Cts = cts;
         ConnectedAt = DateTime.UtcNow;
     }
 
     public void Close()
     {
-        try { Cts?.Cancel(); } catch { /* ignore */ }
+        try { Cts?.Cancel(); } catch {}
         
         ClientStream?.Close();
         ServerStream?.Close();

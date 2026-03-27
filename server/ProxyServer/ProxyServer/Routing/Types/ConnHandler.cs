@@ -79,7 +79,7 @@ public class ConnHandler : ChoiceHandler
             foreach (var s in sessions)
             {
                 var uptime = DateTime.UtcNow - s.ConnectedAt;
-                Logger.Log($"> {s.Host,-30} [{uptime:hh\\:mm\\:ss}]");
+                Logger.Log($"> [{s.ProtocolType,-6}] | {s.Host + ":" + s.Port,-20} [{uptime:hh\\:mm\\:ss}]");
             }
         }
 
